@@ -1,5 +1,7 @@
 # Month Calendar Card — braticks fork
 
+[![Open your Home Assistant instance and add this repository to HACS](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=braticks&repository=ha-month-calendar-card&category=plugin)
+
 This is a personal fork of `drmogie/ha-month-calendar-card` for Home Assistant.
 
 ## Changes in this fork
@@ -14,7 +16,9 @@ This is a personal fork of `drmogie/ha-month-calendar-card` for Home Assistant.
 
 ## HACS installation
 
-Add this repository to HACS as a custom **Dashboard** repository:
+Click the button above for one-click HACS setup.
+
+Manual custom-repository URL:
 
 `https://github.com/braticks/ha-month-calendar-card`
 
