@@ -49,29 +49,56 @@ class HaMonthCalendarCardEditor extends HTMLElement {
   }
 
   _top(key, value) { this._fire({...this._config, [key]: value}); }
+
   _cal(index, key, value) {
     const calendars = this._config.calendars.map((c,i) => i===index ? {...c,[key]:value} : c);
     this._fire({...this._config, calendars});
   }
-  _esc(s) { const d=document.createElement('div'); d.textContent=s==null?'':String(s); return d.innerHTML; }
-  _entities() { return this._hass ? Object.keys(this._hass.states).filter(e=>e.startsWith('calendar.')).sort() : []; }
+
+  _esc(s) {
+    const d=document.createElement('div');
+    d.textContent=s==null?'':String(s);
+    return d.innerHTML;
+  }
+
+  _entities() {
+    return this._hass ? Object.keys(this._hass.states).filter(e=>e.startsWith('calendar.')).sort() : [];
+  }
+
   _color(c) { return /^#[0-9a-fA-F]{6}$/.test(c||'') ? c : DEF_COLOR; }
+  _validColor(c) { return /^#[0-9a-fA-F]{6}$/.test((c||'').trim()); }
 
   render() {
     if (!this.shadowRoot || !this._config) return;
     const c = this._config;
     const entities = this._entities();
+    const hasIconPicker = !!customElements.get('ha-icon-picker');
+
     const days = WEEKDAYS.map(w => `<option value="${w}" ${c.first_day_of_week===w?'selected':''}>${w.charAt(0).toUpperCase()+w.slice(1)}</option>`).join('');
+
     const calendars = c.calendars.map((cal,i) => {
       const options = entities.map(e => `<option value="${e}" ${cal.entity===e?'selected':''}>${e}</option>`).join('');
       const fallback = cal.entity && !entities.includes(cal.entity) ? `<option value="${cal.entity}" selected>${cal.entity}</option>` : '';
+      const iconField = hasIconPicker
+        ? `<ha-icon-picker class="icon-picker" data-i="${i}"></ha-icon-picker>`
+        : `<input class="icon-text" data-i="${i}" value="${this._esc(cal.icon||DEF_ICON)}" placeholder="mdi:calendar">`;
+
       return `<div class="cal">
-        <div class="head"><ha-icon icon="${cal.icon||DEF_ICON}" style="color:${cal.color||DEF_COLOR}"></ha-icon><b>${this._esc(cal.name||cal.entity||'Calendar')}</b><button class="remove" data-i="${i}"><ha-icon icon="mdi:delete-outline"></ha-icon></button></div>
+        <div class="head">
+          <ha-icon class="preview-icon" data-i="${i}" icon="${cal.icon||DEF_ICON}" style="color:${this._color(cal.color)}"></ha-icon>
+          <b>${this._esc(cal.name||cal.entity||'Calendar')}</b>
+          <button class="remove" data-i="${i}" title="Remove calendar"><ha-icon icon="mdi:delete-outline"></ha-icon></button>
+        </div>
+
         <label>Calendar entity<select class="entity" data-i="${i}"><option value="">Select calendar…</option>${fallback}${options}</select></label>
         <label>Display name<input class="name" data-i="${i}" value="${this._esc(cal.name)}" placeholder="Optional"></label>
+
         <div class="two">
-          <label>Icon<input class="icon" data-i="${i}" value="${this._esc(cal.icon||DEF_ICON)}"></label>
-          <label>Color<input class="color" data-i="${i}" type="color" value="${this._color(cal.color)}"></label>
+          <label>Icon${iconField}</label>
+          <label>Color<div class="color-row">
+            <input class="color-picker" data-i="${i}" type="color" value="${this._color(cal.color)}" title="Choose color">
+            <input class="color-hex" data-i="${i}" value="${this._esc(this._color(cal.color))}" maxlength="7" spellcheck="false">
+          </div></label>
         </div>
       </div>`;
     }).join('');
@@ -106,10 +133,10 @@ class HaMonthCalendarCardEditor extends HTMLElement {
       <section><h3>Calendars</h3>${calendars || '<div class="empty">No calendars</div>'}<button id="add" class="add"><ha-icon icon="mdi:plus"></ha-icon>Add calendar</button></section>
     </div>`;
 
-    this.bind();
+    this.bind(hasIconPicker);
   }
 
-  bind() {
+  bind(hasIconPicker) {
     const r = this.shadowRoot;
     r.getElementById('title')?.addEventListener('input', e => this._top('title', e.target.value));
     r.getElementById('first-day')?.addEventListener('change', e => this._top('first_day_of_week', e.target.value));
@@ -123,15 +150,65 @@ class HaMonthCalendarCardEditor extends HTMLElement {
     r.getElementById('selected-time')?.addEventListener('change', e => this._top('selected_show_time', e.target.checked));
     r.getElementById('selected-calendar')?.addEventListener('change', e => this._top('selected_show_calendar', e.target.checked));
     r.getElementById('selected-location')?.addEventListener('change', e => this._top('selected_show_location', e.target.checked));
+
     r.querySelectorAll('.entity').forEach(el => el.addEventListener('change', e => this._cal(+e.target.dataset.i,'entity',e.target.value)));
     r.querySelectorAll('.name').forEach(el => el.addEventListener('input', e => this._cal(+e.target.dataset.i,'name',e.target.value)));
-    r.querySelectorAll('.icon').forEach(el => el.addEventListener('input', e => this._cal(+e.target.dataset.i,'icon',e.target.value||DEF_ICON)));
-    r.querySelectorAll('.color').forEach(el => el.addEventListener('input', e => this._cal(+e.target.dataset.i,'color',e.target.value)));
+
+    if (hasIconPicker) {
+      r.querySelectorAll('ha-icon-picker.icon-picker').forEach(el => {
+        const i = +el.dataset.i;
+        const cal = this._config.calendars[i];
+        el.hass = this._hass;
+        el.label = 'Icon';
+        el.value = cal.icon || DEF_ICON;
+        el.addEventListener('value-changed', e => {
+          e.stopPropagation();
+          const value = e.detail?.value || DEF_ICON;
+          this._cal(i,'icon',value);
+          const preview = r.querySelector(`.preview-icon[data-i="${i}"]`);
+          if (preview) preview.setAttribute('icon', value);
+        });
+      });
+    } else {
+      r.querySelectorAll('.icon-text').forEach(el => el.addEventListener('input', e => {
+        const i = +e.target.dataset.i;
+        const value = e.target.value || DEF_ICON;
+        this._cal(i,'icon',value);
+        const preview = r.querySelector(`.preview-icon[data-i="${i}"]`);
+        if (preview) preview.setAttribute('icon', value);
+      }));
+    }
+
+    r.querySelectorAll('.color-picker').forEach(el => el.addEventListener('input', e => {
+      const i = +e.target.dataset.i;
+      const value = e.target.value;
+      this._cal(i,'color',value);
+      const hex = r.querySelector(`.color-hex[data-i="${i}"]`);
+      if (hex) hex.value = value.toUpperCase();
+      const preview = r.querySelector(`.preview-icon[data-i="${i}"]`);
+      if (preview) preview.style.color = value;
+    }));
+
+    r.querySelectorAll('.color-hex').forEach(el => el.addEventListener('change', e => {
+      const i = +e.target.dataset.i;
+      let value = e.target.value.trim();
+      if (value && !value.startsWith('#')) value = `#${value}`;
+      if (!this._validColor(value)) value = this._color(this._config.calendars[i]?.color);
+      value = value.toUpperCase();
+      e.target.value = value;
+      this._cal(i,'color',value);
+      const picker = r.querySelector(`.color-picker[data-i="${i}"]`);
+      if (picker) picker.value = value;
+      const preview = r.querySelector(`.preview-icon[data-i="${i}"]`);
+      if (preview) preview.style.color = value;
+    }));
+
     r.querySelectorAll('.remove').forEach(el => el.addEventListener('click', e => {
       const i = +e.currentTarget.dataset.i;
       this._fire({...this._config, calendars:this._config.calendars.filter((_,x)=>x!==i)});
       this.render();
     }));
+
     r.getElementById('add')?.addEventListener('click', () => {
       const used = new Set(this._config.calendars.map(x=>x.entity));
       const entity = this._entities().find(x=>!used.has(x)) || '';
@@ -141,7 +218,7 @@ class HaMonthCalendarCardEditor extends HTMLElement {
   }
 
   styles() {
-    return `:host{display:block}.editor{display:flex;flex-direction:column;gap:16px;padding:4px 0}section{display:flex;flex-direction:column;gap:10px}h3{font-size:1rem;margin:0;color:var(--primary-text-color)}label{display:flex;flex-direction:column;gap:4px;font-size:.78rem;color:var(--secondary-text-color)}input,select{box-sizing:border-box;width:100%;padding:8px;border:1px solid var(--divider-color,#ccc);border-radius:5px;background:var(--card-background-color,#fff);color:var(--primary-text-color);font:inherit;font-size:.9rem}.two{display:grid;grid-template-columns:1fr 1fr;gap:10px}.checks{display:grid;grid-template-columns:1fr 1fr;gap:8px}.checks label{flex-direction:row;align-items:center;color:var(--primary-text-color)}.checks input{width:auto}.cal{border:1px solid var(--divider-color,#ddd);border-radius:8px;padding:10px;display:flex;flex-direction:column;gap:8px}.head{display:flex;align-items:center;gap:7px}.head b{flex:1;font-size:.9rem}.head ha-icon{--mdc-icon-size:18px}.remove{width:30px;height:30px;padding:3px;border:0;background:var(--error-color,#db4437);color:#fff;border-radius:5px;cursor:pointer}.add{display:flex;align-items:center;gap:5px;align-self:flex-start;width:auto;border:1px solid var(--primary-color);color:var(--primary-color);background:none;border-radius:5px;padding:7px 10px;cursor:pointer}.empty{color:var(--secondary-text-color);font-size:.85rem}@media(max-width:600px){.two,.checks{grid-template-columns:1fr}}`;
+    return `:host{display:block}.editor{display:flex;flex-direction:column;gap:16px;padding:4px 0}section{display:flex;flex-direction:column;gap:10px}h3{font-size:1rem;margin:0;color:var(--primary-text-color)}label{display:flex;flex-direction:column;gap:4px;font-size:.78rem;color:var(--secondary-text-color)}input,select{box-sizing:border-box;width:100%;padding:8px;border:1px solid var(--divider-color,#ccc);border-radius:5px;background:var(--card-background-color,#fff);color:var(--primary-text-color);font:inherit;font-size:.9rem}ha-icon-picker{width:100%;display:block}.two{display:grid;grid-template-columns:1fr 1fr;gap:10px}.checks{display:grid;grid-template-columns:1fr 1fr;gap:8px}.checks label{flex-direction:row;align-items:center;color:var(--primary-text-color)}.checks input{width:auto}.cal{border:1px solid var(--divider-color,#ddd);border-radius:8px;padding:10px;display:flex;flex-direction:column;gap:8px}.head{display:flex;align-items:center;gap:7px}.head b{flex:1;font-size:.9rem}.head ha-icon{--mdc-icon-size:18px}.remove{width:30px;height:30px;padding:3px;border:0;background:var(--error-color,#db4437);color:#fff;border-radius:5px;cursor:pointer}.add{display:flex;align-items:center;gap:5px;align-self:flex-start;width:auto;border:1px solid var(--primary-color);color:var(--primary-color);background:none;border-radius:5px;padding:7px 10px;cursor:pointer}.empty{color:var(--secondary-text-color);font-size:.85rem}.color-row{display:grid;grid-template-columns:52px 1fr;gap:7px;align-items:center}.color-picker{height:38px;padding:2px;cursor:pointer}.color-hex{text-transform:uppercase;font-family:monospace}@media(max-width:600px){.two,.checks{grid-template-columns:1fr}}`;
   }
 }
 
